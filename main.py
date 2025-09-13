@@ -1,20 +1,20 @@
-import requests
 from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
-import time
 from selenium.webdriver.chrome.options import Options
-from transformers import RobertaForSequenceClassification, RobertaTokenizer
-import torch
 import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
 import pandas as pd
+import requests
+import json
+import time
 
-# Page configuration
+BACKEND_URL = "http://127.0.0.1:8000/predict"
+
 st.set_page_config(
     page_title="Movie Sentiment Analysis",
     page_icon="🎬",
@@ -24,28 +24,20 @@ st.set_page_config(
 st.title("🎬 Movie Sentiment Analysis")
 st.markdown("---")
 
-# Input section
+#movie input
 col1, col2, col3 = st.columns([1, 2, 1])
 with col2:
     movie_name = st.text_input("🔍 Enter a movie name", placeholder="e.g., The Dark Knight")
-
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-# Load fine-tuned model
-model_path = "./model"
-model = RobertaForSequenceClassification.from_pretrained(model_path)
-tokenizer = RobertaTokenizer.from_pretrained(model_path)
-model.to(device)
 
 headers = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
 }
 
+#idk
 def get_chrome_options():
     """Configure Chrome options for better stability"""
     chrome_options = Options()
     
-    # Basic options for stability
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
@@ -71,6 +63,7 @@ def get_chrome_options():
     
     return chrome_options
 
+#movie url for id
 def get_movie_url(movie_name):
     search_url = f"https://www.imdb.com/find?q={movie_name}&s=tt"
     try:
@@ -78,6 +71,7 @@ def get_movie_url(movie_name):
         search_response.raise_for_status()
         search_soup = BeautifulSoup(search_response.text, "html.parser")
         
+        #multiple selectors if anyone fails
         selectors = [
             "a.ipc-metadata-list-summary-item__t",
             "a[href*='/title/tt']",
@@ -90,6 +84,7 @@ def get_movie_url(movie_name):
             if movie_link_tag:
                 break
         
+        #here we get the movie id to make full url
         if movie_link_tag:
             movie_link = movie_link_tag['href']
             movie_id = movie_link.split('/')[2]
@@ -103,6 +98,7 @@ def get_movie_url(movie_name):
         print(f"Error searching for movie: {e}")
         return None
 
+#this is for showing poster
 def get_movie_poster(movie_id):
     movie_page_url = f"https://www.imdb.com/title/{movie_id}/"
     
@@ -111,6 +107,7 @@ def get_movie_poster(movie_id):
         response.raise_for_status()
         soup = BeautifulSoup(response.text, "html.parser")
         
+        #multiple selectors if anyone fails
         poster_selectors = [
             "img.ipc-image",
             "img[class*='poster']",
@@ -135,8 +132,8 @@ def get_movie_poster(movie_id):
         print(f"Error getting poster: {e}")
         return None
 
+#click the show all button to get more reviews
 def click_show_all_button(driver, max_clicks=2):
-    """Improved show all button clicking with better error handling"""
     clicks = 0
     wait = WebDriverWait(driver, 5)
     
@@ -188,11 +185,13 @@ def click_show_all_button(driver, max_clicks=2):
     
     return clicks
 
+#scrap reviews
 def get_reviews(movie_name):
     movie_id = get_movie_url(movie_name)
     if not movie_id:
         return [], None
     
+    #this is the url set for date modified reviews
     reviews_url = f"https://www.imdb.com/title/{movie_id}/reviews/?ref_=tt_ururv_genai_sm&sort=submission_date%2Cdesc"
     
     chrome_options = get_chrome_options()
@@ -200,7 +199,7 @@ def get_reviews(movie_name):
     
     try:
         print("Initializing Chrome driver...")
-        driver = webdriver.Chrome(options=chrome_options)
+        driver = webdriver.Chrome(options=chrome_options) #multiple chrome options
         driver.set_page_load_timeout(30)
         
         print(f"Loading reviews page: {reviews_url}")
@@ -230,6 +229,7 @@ def get_reviews(movie_name):
     soup = BeautifulSoup(page_source, "html.parser")
     reviews = []
     
+    #multiple selectors if anyone fails
     review_selectors = [
         "div.ipc-html-content-inner-div",
         "div.content .text",
@@ -237,6 +237,7 @@ def get_reviews(movie_name):
         ".review-container .content"
     ]
     
+    #scraping reviews one by one
     for selector in review_selectors:
         review_elements = soup.select(selector)
         if review_elements:
@@ -282,43 +283,41 @@ if movie_name:
             st.subheader("🎯 Sentiment Analysis Results")
             
             with st.spinner("🧠 Analyzing sentiments..."):
-                pred_list = []
-                progress_bar = st.progress(0)
-                
-                for i, text in enumerate(movie_reviews):
-                    progress_bar.progress((i + 1) / len(movie_reviews))
+                #data to send to FastAPI
+                data = {"reviews": movie_reviews}
+
+                try:
+                    #POST request
+                    response = requests.post(BACKEND_URL, json=data)
+                    response.raise_for_status()
+                    #parsing
+                    sentiment_results = response.json()["sentiments"]
                     
-                    inputs = tokenizer(text, return_tensors="pt", padding=True, truncation=True, max_length=128)
-                    inputs = {k: v.to(device) for k, v in inputs.items()}
-
-                    with torch.no_grad():
-                        outputs = model(**inputs)
-
-                    pred = outputs.logits.argmax(-1).item()
-                    label_map = {0: "Negative", 1: "Neutral", 2: "Positive"}
-                    pred_list.append(label_map[pred])
-                
-                progress_bar.empty()
+                    #sentiment counts
+                    sentiment_counts = {sentiment: sentiment_results.count(sentiment) for sentiment in ["Positive", "Neutral", "Negative"]}
+                    total_reviews = len(sentiment_results)
+                    
+                except requests.exceptions.RequestException as e:
+                    st.error(f"Error fetching sentiment results: {e}")
+                    st.stop()
             
-            sentiment_counts = {sentiment: pred_list.count(sentiment) for sentiment in ["Positive", "Neutral", "Negative"]}
-            total_reviews = len(pred_list)
-            
-            # Create tabs for different views
+            stars = ((sentiment_counts['Positive'] * 10) + (sentiment_counts['Neutral'] * 5) + (sentiment_counts['Negative'] * 3)) / total_reviews
+            # tabs for different views
             tab1, tab2, tab3 = st.tabs(["📊 Overview", "📈 Charts", "📝 Reviews"])
             
+            #overview Tab
             with tab1:
                 col1, col2, col3, col4 = st.columns(4)
                 with col1:
                     st.metric("✅ Positive", sentiment_counts["Positive"], 
-                             f"{sentiment_counts['Positive']/total_reviews*100:.1f}%")
+                            f"{sentiment_counts['Positive']/total_reviews*100:.1f}%")
                 with col2:
                     st.metric("😐 Neutral", sentiment_counts["Neutral"], 
-                             f"{sentiment_counts['Neutral']/total_reviews*100:.1f}%")
+                            f"{sentiment_counts['Neutral']/total_reviews*100:.1f}%")
                 with col3:
                     st.metric("❌ Negative", sentiment_counts["Negative"], 
-                             f"{sentiment_counts['Negative']/total_reviews*100:.1f}%")
+                            f"{sentiment_counts['Negative']/total_reviews*100:.1f}%")
                 with col4:
-                    # Overall sentiment
                     if sentiment_counts["Positive"] > sentiment_counts["Negative"]:
                         overall = "😊 Mostly Positive"
                     elif sentiment_counts["Negative"] > sentiment_counts["Positive"]:
@@ -326,6 +325,14 @@ if movie_name:
                     else:
                         overall = "😐 Mixed"
                     st.metric("🎯 Overall", overall)
+
+                st.markdown("---")
+                st.subheader("⭐ Star Rating")
+                st.write(f"**Estimated Stars**: {round(stars, 1)} / 10")
+                
+                star_rating = round(stars)
+                star_icons = "⭐" * star_rating + "☆" * (10 - star_rating)
+                st.markdown(f"<h3 style='text-align: center;'>{star_icons}</h3>", unsafe_allow_html=True)
             
             with tab2:
                 col1, col2 = st.columns(2)
@@ -376,19 +383,19 @@ if movie_name:
                 st.plotly_chart(fig_horizontal, use_container_width=True)
             
             with tab3:
-                
                 show_all = st.checkbox("Show all reviews", value=False)
-                
-                filtered_reviews = list(zip(movie_reviews, pred_list))
+
+                # Combine reviews with their predicted sentiment
+                filtered_reviews = list(zip(movie_reviews, sentiment_results))
                 display_count = len(filtered_reviews) if show_all else min(10, len(filtered_reviews))
-                
+
                 st.write(f"Showing {display_count} out of {len(filtered_reviews)} reviews")
-                
+
                 for idx in range(display_count):
                     review, sentiment = filtered_reviews[idx]
-                    
+
                     rev_col1, rev_col2 = st.columns([4, 1])
-                    
+
                     with rev_col1:
                         if sentiment == "Positive":
                             st.success(f"**Review {idx+1}**")
@@ -396,20 +403,21 @@ if movie_name:
                             st.error(f"**Review {idx+1}**")
                         else:
                             st.info(f"**Review {idx+1}**")
-                    
+
                     with rev_col2:
                         if sentiment == "Positive":
                             st.success(f"✅ {sentiment}")
                         elif sentiment == "Negative":
                             st.error(f"❌ {sentiment}")
-                        else:
+                        else: 
                             st.info(f"😐 {sentiment}")
-                    
+
                     with st.expander("📖 Read Full Review"):
                         st.write(review)
-                
+
                 if not show_all and len(filtered_reviews) > 10:
                     st.info(f"💡 Showing 10 out of {len(filtered_reviews)} reviews. Check 'Show all reviews' to see more.")
+                
         
     else:
         st.error("❌ No reviews found for this movie. Please check the movie name and try again.")
