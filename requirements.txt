@@ -9,5 +9,3 @@ streamlit
 plotly
 pandas
 requests
-json
-time
