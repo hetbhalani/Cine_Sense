@@ -1,0 +1,13 @@
+transformers
+torch
+typing
+pydantic
+fastapi
+beautifulsoup4
+selenium
+streamlit
+plotly
+pandas
+requests
+json
+time
