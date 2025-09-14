@@ -10,3 +10,4 @@ plotly
 pandas
 requests
 uvicorn
+webdriver-manager

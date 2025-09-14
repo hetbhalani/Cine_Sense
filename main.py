@@ -5,6 +5,8 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 from selenium.webdriver.chrome.options import Options
+from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.chrome.service import Service
 import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
@@ -35,32 +37,11 @@ headers = {
 
 #idk
 def get_chrome_options():
-    """Configure Chrome options for better stability"""
     chrome_options = Options()
-    
-    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--headless")  
+    chrome_options.add_argument("--no-sandbox")  
     chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument("--disable-gpu")
-    chrome_options.add_argument("--disable-web-security")
-    chrome_options.add_argument("--allow-running-insecure-content")
-    chrome_options.add_argument("--disable-extensions")
-    chrome_options.add_argument("--disable-plugins")
-    chrome_options.add_argument("--disable-images")
-    
-    # Network and SSL related fixes
-    chrome_options.add_argument("--ignore-certificate-errors")
-    chrome_options.add_argument("--ignore-ssl-errors")
-    chrome_options.add_argument("--ignore-certificate-errors-spki-list")
-    chrome_options.add_argument("--disable-features=VizDisplayCompositor")
-    
-    # Performance improvements
-    chrome_options.add_argument("--disable-logging")
-    chrome_options.add_argument("--disable-gpu-logging")
-    chrome_options.add_argument("--log-level=3")
-    
-    # Optional: Use headless mode for production
-    # chrome_options.add_argument("--headless")
-    
+    chrome_options.add_argument("--disable-gpu")  
     return chrome_options
 
 #movie url for id
@@ -199,7 +180,9 @@ def get_reviews(movie_name):
     
     try:
         print("Initializing Chrome driver...")
-        driver = webdriver.Chrome(options=chrome_options) #multiple chrome options
+        
+        service = Service(ChromeDriverManager().install())
+        driver = webdriver.Chrome(service=service, options=chrome_options)
         driver.set_page_load_timeout(30)
         
         print(f"Loading reviews page: {reviews_url}")
