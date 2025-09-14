@@ -6,10 +6,11 @@ from transformers import RobertaForSequenceClassification, RobertaTokenizer
 
 app = FastAPI()
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device("cpu")
 model_path = "hetbhalani/roberta-enhanced-for-sentiment"
 
 model = RobertaForSequenceClassification.from_pretrained(model_path)
+model.eval()
 tokenizer = RobertaTokenizer.from_pretrained(model_path)
 model.to(device)
 
@@ -19,17 +20,15 @@ class MovieReviews(BaseModel):
 
 @app.post('/predict')
 def sentiment_model_predict(movie_reviews: MovieReviews):
-    pred_list = []
+    texts = movie_reviews.reviews
+    inputs = tokenizer(texts, return_tensors="pt", padding=True, truncation=True, max_length=128)
+    inputs = {k: v.to(device) for k, v in inputs.items()}
 
-    for i, text in enumerate(movie_reviews.reviews):        
-        inputs = tokenizer(text, return_tensors="pt", padding=True, truncation=True, max_length=128)
-        inputs = {k: v.to(device) for k, v in inputs.items()}
+    with torch.no_grad():
+        outputs = model(**inputs)
+        preds = outputs.logits.argmax(-1).tolist()
 
-        with torch.no_grad():
-            outputs = model(**inputs)
-
-        pred = outputs.logits.argmax(-1).item()
-        label_map = {0: "Negative", 1: "Neutral", 2: "Positive"}
-        pred_list.append(label_map[pred])
+    label_map = {0: "Negative", 1: "Neutral", 2: "Positive"}
+    pred_list = [label_map[p] for p in preds]
 
     return {"sentiments": pred_list}

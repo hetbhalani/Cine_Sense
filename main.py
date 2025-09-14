@@ -13,7 +13,7 @@ import requests
 import json
 import time
 
-BACKEND_URL = "http://127.0.0.1:8000/predict"
+BACKEND_URL = "https://hetbhalani-movie-sentiment-fastapi.hf.space/predict"
 
 st.set_page_config(
     page_title="Movie Sentiment Analysis",
