@@ -7,7 +7,8 @@ from transformers import RobertaForSequenceClassification, RobertaTokenizer
 app = FastAPI()
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model_path = "model"
+model_path = "hetbhalani/roberta-enhanced-for-sentiment"
+
 model = RobertaForSequenceClassification.from_pretrained(model_path)
 tokenizer = RobertaTokenizer.from_pretrained(model_path)
 model.to(device)
