@@ -7,6 +7,8 @@ from selenium.common.exceptions import TimeoutException, NoSuchElementException
 from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
+from webdriver_manager.core.os_manager import ChromeType
 import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
@@ -39,43 +41,47 @@ headers = {
 #idk
 @st.cache_resource
 def get_webdriver():
-    chrome_options = Options()
-
-    chrome_options.add_argument("--headless")  # Must be headless in production
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument("--disable-gpu")
-    chrome_options.add_argument("--disable-web-security")
-    chrome_options.add_argument("--allow-running-insecure-content")
-    chrome_options.add_argument("--disable-extensions")
-    chrome_options.add_argument("--disable-plugins")
-    chrome_options.add_argument("--disable-images")
-    chrome_options.add_argument("--disable-javascript")
-    chrome_options.add_argument("--disable-css")
+    options = Options()
+    
+    # Essential options for Streamlit Cloud
+    options.add_argument("--headless")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--disable-web-security")
+    options.add_argument("--allow-running-insecure-content")
+    options.add_argument("--disable-extensions")
+    options.add_argument("--disable-plugins")
+    options.add_argument("--disable-images")
+    options.add_argument("--disable-javascript")
+    options.add_argument("--disable-css")
     
     # Network and SSL related fixes
-    chrome_options.add_argument("--ignore-certificate-errors")
-    chrome_options.add_argument("--ignore-ssl-errors")
-    chrome_options.add_argument("--ignore-certificate-errors-spki-list")
-    chrome_options.add_argument("--disable-features=VizDisplayCompositor")
+    options.add_argument("--ignore-certificate-errors")
+    options.add_argument("--ignore-ssl-errors")
+    options.add_argument("--ignore-certificate-errors-spki-list")
+    options.add_argument("--disable-features=VizDisplayCompositor")
     
     # Performance improvements for cloud
-    chrome_options.add_argument("--disable-logging")
-    chrome_options.add_argument("--disable-gpu-logging")
-    chrome_options.add_argument("--log-level=3")
-    chrome_options.add_argument("--memory-pressure-off")
-    chrome_options.add_argument("--max_old_space_size=4096")
+    options.add_argument("--disable-logging")
+    options.add_argument("--disable-gpu-logging")
+    options.add_argument("--log-level=3")
+    options.add_argument("--memory-pressure-off")
+    options.add_argument("--max_old_space_size=4096")
     
     # Additional cloud-friendly options
-    chrome_options.add_argument("--single-process")
-    chrome_options.add_argument("--disable-background-timer-throttling")
-    chrome_options.add_argument("--disable-renderer-backgrounding")
-    chrome_options.add_argument("--disable-backgrounding-occluded-windows")
+    options.add_argument("--single-process")
+    options.add_argument("--disable-background-timer-throttling")
+    options.add_argument("--disable-renderer-backgrounding")
+    options.add_argument("--disable-backgrounding-occluded-windows")
     
     try:
-        # Try to initialize with Service (for newer selenium versions)
-        service = Service()
-        driver = webdriver.Chrome(service=service, options=chrome_options)
+        driver = webdriver.Chrome(
+            service=Service(
+                ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install()
+            ),
+            options=options,
+        )
         return driver
     except Exception as e:
         st.error(f"Failed to initialize Chrome driver: {str(e)}")
