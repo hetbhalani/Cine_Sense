@@ -16,6 +16,8 @@ import requests
 import json
 import time
 import os
+import subprocess
+import sys
 
 BACKEND_URL = "https://hetbhalani-movie-sentiment-fastapi.hf.space/predict"
 
@@ -40,50 +42,53 @@ headers = {
 #idk
 @st.cache_resource
 def get_webdriver():
+    """Initialize Chrome webdriver for Streamlit Cloud"""
     options = Options()
     
-    # Essential options for Streamlit Cloud
+    # Basic required options
     options.add_argument("--headless")
-    options.add_argument("--no-sandbox")
+    options.add_argument("--no-sandbox") 
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
-    options.add_argument("--disable-web-security")
-    options.add_argument("--allow-running-insecure-content")
-    options.add_argument("--disable-extensions")
-    options.add_argument("--disable-plugins")
-    options.add_argument("--disable-images")
-    options.add_argument("--disable-javascript")
-    options.add_argument("--disable-css")
+    options.add_argument("--remote-debugging-port=9222")
+    options.add_argument("--window-size=1920,1080")
     
-    # Network and SSL related fixes
-    options.add_argument("--ignore-certificate-errors")
-    options.add_argument("--ignore-ssl-errors")
-    options.add_argument("--ignore-certificate-errors-spki-list")
-    options.add_argument("--disable-features=VizDisplayCompositor")
-    
-    # Performance improvements for cloud
-    options.add_argument("--disable-logging")
-    options.add_argument("--disable-gpu-logging")
-    options.add_argument("--log-level=3")
-    options.add_argument("--memory-pressure-off")
-    options.add_argument("--max_old_space_size=4096")
-    
-    # Additional cloud-friendly options
-    options.add_argument("--single-process")
-    options.add_argument("--disable-background-timer-throttling")
-    options.add_argument("--disable-renderer-backgrounding")
-    options.add_argument("--disable-backgrounding-occluded-windows")
-    
+    # Check if we're running on Streamlit Cloud
     try:
+        # This is a hack to detect Streamlit Cloud environment
+        result = subprocess.run(['which', 'chromium'], capture_output=True, text=True)
+        if result.returncode == 0:
+            # We're likely on Streamlit Cloud with chromium installed
+            st.write("Detected Streamlit Cloud environment with Chromium")
+            
+            # Try to use chromium binary directly
+            options.binary_location = "/usr/bin/chromium"
+            
+            # Use system chromium-driver
+            service = Service("/usr/bin/chromedriver")
+            
+            try:
+                driver = webdriver.Chrome(service=service, options=options)
+                st.write("Successfully initialized with system chromedriver")
+                return driver
+            except Exception as e:
+                st.write(f"System chromedriver failed: {e}")
+                # Fall back to webdriver_manager
+                pass
+    except:
+        pass
+    
+    # Fallback to webdriver_manager
+    try:
+        st.write("Falling back to webdriver_manager")
         driver = webdriver.Chrome(
-            service=Service(
-                ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install()
-            ),
-            options=options,
+            service=Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install()),
+            options=options
         )
+        st.write("webdriver_manager method successful")
         return driver
     except Exception as e:
-        st.error(f"Failed to initialize Chrome driver: {str(e)}")
+        st.error(f"All webdriver initialization methods failed: {e}")
         return None
 
 #movie url for id
