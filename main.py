@@ -14,6 +14,7 @@ import pandas as pd
 import requests
 import json
 import time
+import os
 
 BACKEND_URL = "https://hetbhalani-movie-sentiment-fastapi.hf.space/predict"
 
@@ -36,13 +37,49 @@ headers = {
 }
 
 #idk
-def get_chrome_options():
+@st.cache_resource
+def get_webdriver():
     chrome_options = Options()
-    chrome_options.add_argument("--headless")  
-    chrome_options.add_argument("--no-sandbox")  
+
+    chrome_options.add_argument("--headless")  # Must be headless in production
+    chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument("--disable-gpu")  
-    return chrome_options
+    chrome_options.add_argument("--disable-gpu")
+    chrome_options.add_argument("--disable-web-security")
+    chrome_options.add_argument("--allow-running-insecure-content")
+    chrome_options.add_argument("--disable-extensions")
+    chrome_options.add_argument("--disable-plugins")
+    chrome_options.add_argument("--disable-images")
+    chrome_options.add_argument("--disable-javascript")
+    chrome_options.add_argument("--disable-css")
+    
+    # Network and SSL related fixes
+    chrome_options.add_argument("--ignore-certificate-errors")
+    chrome_options.add_argument("--ignore-ssl-errors")
+    chrome_options.add_argument("--ignore-certificate-errors-spki-list")
+    chrome_options.add_argument("--disable-features=VizDisplayCompositor")
+    
+    # Performance improvements for cloud
+    chrome_options.add_argument("--disable-logging")
+    chrome_options.add_argument("--disable-gpu-logging")
+    chrome_options.add_argument("--log-level=3")
+    chrome_options.add_argument("--memory-pressure-off")
+    chrome_options.add_argument("--max_old_space_size=4096")
+    
+    # Additional cloud-friendly options
+    chrome_options.add_argument("--single-process")
+    chrome_options.add_argument("--disable-background-timer-throttling")
+    chrome_options.add_argument("--disable-renderer-backgrounding")
+    chrome_options.add_argument("--disable-backgrounding-occluded-windows")
+    
+    try:
+        # Try to initialize with Service (for newer selenium versions)
+        service = Service()
+        driver = webdriver.Chrome(service=service, options=chrome_options)
+        return driver
+    except Exception as e:
+        st.error(f"Failed to initialize Chrome driver: {str(e)}")
+        return None
 
 #movie url for id
 def get_movie_url(movie_name):
@@ -116,7 +153,7 @@ def get_movie_poster(movie_id):
 #click the show all button to get more reviews
 def click_show_all_button(driver, max_clicks=2):
     clicks = 0
-    wait = WebDriverWait(driver, 5)
+    wait = WebDriverWait(driver, 10)
     
     button_selectors = [
         "//button[contains(@class, 'ipc-see-more__button')]",
@@ -129,7 +166,7 @@ def click_show_all_button(driver, max_clicks=2):
     while clicks < max_clicks:
         try:
             driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-            time.sleep(2)
+            time.sleep(3)
             
             button_found = False
             for selector in button_selectors:
@@ -149,7 +186,7 @@ def click_show_all_button(driver, max_clicks=2):
                         
                         clicks += 1
                         print(f"Clicked button {clicks} time(s)")
-                        time.sleep(3)
+                        time.sleep(5)
                         button_found = True
                         break
                         
@@ -166,6 +203,46 @@ def click_show_all_button(driver, max_clicks=2):
     
     return clicks
 
+#when selenium fails on server, this will find the available reviews only
+def get_reviews_fallback(movie_name):
+    movie_id = get_movie_url(movie_name)
+    if not movie_id:
+        return [], None
+    
+    reviews_url = f"https://www.imdb.com/title/{movie_id}/reviews/?ref_=tt_ururv_genai_sm&sort=submission_date%2Cdesc"
+    
+    try:
+        response = requests.get(reviews_url, headers=headers, timeout=15)
+        response.raise_for_status()
+        
+        soup = BeautifulSoup(response.text, "html.parser")
+        reviews = []
+        
+        #multiple selectors for reviews
+        review_selectors = [
+            "div.ipc-html-content-inner-div",
+            "div.content .text", 
+            "div[data-testid='review-content']",
+            ".review-container .content"
+        ]
+        
+        for selector in review_selectors:
+            review_elements = soup.select(selector)
+            if review_elements:
+                print(f"Found {len(review_elements)} reviews with selector: {selector}")
+                for review in review_elements:
+                    text = review.get_text(strip=True)
+                    if text and len(text) > 20:
+                        reviews.append(text)
+                break
+        
+        poster_url = get_movie_poster(movie_id)
+        return reviews, poster_url
+        
+    except Exception as e:
+        print(f"Error in fallback method: {e}")
+        return [], None
+
 #scrap reviews
 def get_reviews(movie_name):
     movie_id = get_movie_url(movie_name)
@@ -175,66 +252,72 @@ def get_reviews(movie_name):
     #this is the url set for date modified reviews
     reviews_url = f"https://www.imdb.com/title/{movie_id}/reviews/?ref_=tt_ururv_genai_sm&sort=submission_date%2Cdesc"
     
-    chrome_options = get_chrome_options()
-    driver = None
-    
     try:
-        print("Initializing Chrome driver...")
+        st.info("🔄 Initializing browser (this may take a moment)...")
+        driver = get_webdriver()
         
-        service = Service(ChromeDriverManager().install())
-        driver = webdriver.Chrome(service=service, options=chrome_options)
-        driver.set_page_load_timeout(30)
+        if driver is None:
+            raise Exception("Could not initialize Chrome driver")
+        
+        driver.set_page_load_timeout(45)
         
         print(f"Loading reviews page: {reviews_url}")
         driver.get(reviews_url)
-        time.sleep(5)
+        time.sleep(8)
         
         total_clicks = click_show_all_button(driver, max_clicks=2)
         print(f"Total buttons clicked: {total_clicks}")
         
         driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-        time.sleep(2)
+        time.sleep(3)
         
         page_source = driver.page_source
+        driver.quit()
         
+        soup = BeautifulSoup(page_source, "html.parser")
+        reviews = []
+        
+        # multiple selectors for reviews
+        review_selectors = [
+            "div.ipc-html-content-inner-div",
+            "div.content .text",
+            "div[data-testid='review-content']", 
+            ".review-container .content"
+        ]
+        
+        for selector in review_selectors:
+            review_elements = soup.select(selector)
+            if review_elements:
+                print(f"Found {len(review_elements)} reviews with selector: {selector}")
+                for review in review_elements:
+                    text = review.get_text(strip=True)
+                    if text and len(text) > 20:
+                        reviews.append(text)
+                break
+        
+        poster_url = get_movie_poster(movie_id)
+        
+        if reviews:
+            return reviews, poster_url
+        else:
+            raise Exception("No reviews found with Selenium, trying fallback")
+            
     except Exception as e:
-        print(f"Error during scraping: {e}")
-        return [], None
+        print(f"Selenium method failed: {e}")
+        st.warning("🔄 Browser method failed, trying alternative approach...")
         
-    finally:
-        if driver:
-            try:
-                driver.quit()
-                print("Browser closed successfully.")
-            except:
-                print("Error closing browser.")
+        #try fallback method
+        try:
+            reviews, poster_url = get_reviews_fallback(movie_name)
+            if reviews:
+                st.info("✅ Successfully retrieved reviews using alternative method")
+                return reviews, poster_url
+            else:
+                return [], None
+        except Exception as fallback_error:
+            print(f"Fallback method also failed: {fallback_error}")
+            return [], None
     
-    soup = BeautifulSoup(page_source, "html.parser")
-    reviews = []
-    
-    #multiple selectors if anyone fails
-    review_selectors = [
-        "div.ipc-html-content-inner-div",
-        "div.content .text",
-        "div[data-testid='review-content']",
-        ".review-container .content"
-    ]
-    
-    #scraping reviews one by one
-    for selector in review_selectors:
-        review_elements = soup.select(selector)
-        if review_elements:
-            print(f"Found {len(review_elements)} reviews with selector: {selector}")
-            for review in review_elements:
-                text = review.get_text(strip=True)
-                if text and len(text) > 20:
-                    reviews.append(text)
-            break
-    
-    poster_url = get_movie_poster(movie_id)
-    
-    return reviews, poster_url
-
 
 ################################ Streamlit ###################################
 if movie_name:
