@@ -4,7 +4,10 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
-from selenium.webdriver import FirefoxOptions
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
+from webdriver_manager.core.os_manager import ChromeType
 import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
@@ -35,48 +38,89 @@ headers = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
 }
 
-#idk
-@st.cache_resource
-def install_firefox_driver():
-    """Install Firefox driver for Streamlit Cloud"""
-    try:
-        os.system('sbase install geckodriver')
-        os.system('ln -s /home/appuser/venv/lib/python3.*/site-packages/seleniumbase/drivers/geckodriver /home/appuser/venv/bin/geckodriver')
-        return True
-    except Exception as e:
-        st.error(f"Failed to install geckodriver: {e}")
-        return False
-
-# Initialize Firefox driver installation
-_ = install_firefox_driver()
-
 @st.cache_resource
 def get_webdriver():
-    """Initialize and return a Firefox webdriver for Streamlit Cloud"""
+    """Initialize and return a Chrome webdriver optimized for Streamlit Cloud"""
     
-    # Firefox options for Streamlit Cloud
-    opts = FirefoxOptions()
-    opts.add_argument("--headless")
-    opts.add_argument("--no-sandbox")
-    opts.add_argument("--disable-dev-shm-usage")
-    opts.add_argument("--disable-gpu")
-    opts.add_argument("--window-size=1920,1080")
+    options = Options()
     
-    # Additional Firefox-specific options
-    opts.add_argument("--disable-extensions")
-    opts.add_argument("--disable-plugins")
-    opts.add_argument("--disable-images")
+    # Essential options for headless operation
+    options.add_argument("--headless")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--disable-features=VizDisplayCompositor")
+    options.add_argument("--disable-software-rasterizer")
+    
+    # Performance optimizations
+    options.add_argument("--disable-extensions")
+    options.add_argument("--disable-plugins")
+    options.add_argument("--disable-images")
+    options.add_argument("--disable-javascript")  # Enable JS only if needed for dynamic content
+    options.add_argument("--window-size=1920,1080")
+    
+    # Additional stability options
+    options.add_argument("--disable-blink-features=AutomationControlled")
+    options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
+    
+    # Memory optimization
+    options.add_argument("--memory-pressure-off")
+    options.add_argument("--single-process")
+    options.add_argument("--disable-background-timer-throttling")
+    options.add_argument("--disable-renderer-backgrounding")
+    options.add_argument("--disable-features=TranslateUI")
+    options.add_argument("--disable-ipc-flooding-protection")
+    
+    # Experimental options for better stability
+    options.add_experimental_option("excludeSwitches", ["enable-logging"])
+    options.add_experimental_option('useAutomationExtension', False)
+    prefs = {
+        "profile.default_content_setting_values": {
+            "images": 2,  # Block images
+            "plugins": 2,  # Block plugins
+            "popups": 2,  # Block popups
+            "geolocation": 2,  # Block location
+            "notifications": 2,  # Block notifications
+            "media_stream": 2,  # Block media stream
+            "media_stream_mic": 2,  # Block microphone
+            "media_stream_camera": 2,  # Block camera
+            "protocol_handlers": 2,  # Block protocol handlers
+            "ppapi_broker": 2,  # Block PPAPI broker
+            "automatic_downloads": 2,  # Block automatic downloads
+            "midi_sysex": 2,  # Block MIDI sysex
+            "push_messaging": 2,  # Block push messages
+            "ssl_cert_decisions": 2,  # Block SSL cert decisions
+            "metro_switch_to_desktop": 2,  # Block metro switch
+            "protected_media_identifier": 2,  # Block protected media
+            "app_banner": 2,  # Block app banner
+            "site_engagement": 2,  # Block site engagement
+            "durable_storage": 2  # Block durable storage
+        }
+    }
+    options.add_experimental_option("prefs", prefs)
     
     try:
-        st.info("Initializing Firefox browser...")
-        driver = webdriver.Firefox(options=opts)
-        st.success("Firefox browser initialized successfully!")
+        # Use webdriver-manager to automatically handle ChromeDriver
+        service = Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install())
+        driver = webdriver.Chrome(service=service, options=options)
+        
+        # Set timeouts
+        driver.set_page_load_timeout(30)
+        driver.implicitly_wait(10)
+        
         return driver
     except Exception as e:
-        st.error(f"Failed to initialize Firefox driver: {str(e)}")
-        return None
+        st.error(f"Failed to initialize Chrome driver: {str(e)}")
+        # Try alternative initialization
+        try:
+            driver = webdriver.Chrome(options=options)
+            driver.set_page_load_timeout(30)
+            driver.implicitly_wait(10)
+            return driver
+        except:
+            return None
 
-#movie url for id
+# Movie URL for ID
 def get_movie_url(movie_name):
     search_url = f"https://www.imdb.com/find?q={movie_name}&s=tt"
     try:
@@ -84,7 +128,7 @@ def get_movie_url(movie_name):
         search_response.raise_for_status()
         search_soup = BeautifulSoup(search_response.text, "html.parser")
         
-        #multiple selectors if anyone fails
+        # Multiple selectors if anyone fails
         selectors = [
             "a.ipc-metadata-list-summary-item__t",
             "a[href*='/title/tt']",
@@ -146,7 +190,7 @@ def get_movie_poster(movie_id):
         return None
 
 #click the show all button to get more reviews
-def click_show_all_button(driver, max_clicks=2):
+def click_show_all_button(driver, max_clicks=3):
     clicks = 0
     wait = WebDriverWait(driver, 10)
     
@@ -155,34 +199,38 @@ def click_show_all_button(driver, max_clicks=2):
         "//button[contains(text(), 'Show All')]",
         "//button[contains(text(), 'Load More')]",
         "//span[contains(text(), 'Show All')]/parent::button",
-        "//div[contains(@class, 'load-more')]//button"
+        "//button[@data-testid='load-more-button']",
+        "//button[contains(@class, 'load-more')]"
     ]
     
     while clicks < max_clicks:
         try:
+            # Scroll to bottom first
             driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-            time.sleep(3)
+            time.sleep(2)
             
             button_found = False
             for selector in button_selectors:
                 try:
-                    print(f"Looking for button with selector: {selector}")
-                    button = wait.until(EC.element_to_be_clickable((By.XPATH, selector)))
+                    elements = driver.find_elements(By.XPATH, selector)
+                    for button in elements:
+                        if button and button.is_displayed() and button.is_enabled():
+                            print(f"Found button with selector: {selector}")
+                            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", button)
+                            time.sleep(1)
+                            
+                            try:
+                                driver.execute_script("arguments[0].click();", button)
+                            except:
+                                button.click()
+                            
+                            clicks += 1
+                            print(f"Clicked button {clicks} time(s)")
+                            time.sleep(3)
+                            button_found = True
+                            break
                     
-                    if button and button.is_displayed():
-                        print(f"Found button with selector: {selector}")
-                        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", button)
-                        time.sleep(1)
-                        
-                        try:
-                            driver.execute_script("arguments[0].click();", button)
-                        except:
-                            button.click()
-                        
-                        clicks += 1
-                        print(f"Clicked button {clicks} time(s)")
-                        time.sleep(5)
-                        button_found = True
+                    if button_found:
                         break
                         
                 except (TimeoutException, NoSuchElementException):
@@ -247,28 +295,38 @@ def get_reviews(movie_name):
     #this is the url set for date modified reviews
     reviews_url = f"https://www.imdb.com/title/{movie_id}/reviews/?ref_=tt_ururv_genai_sm&sort=submission_date%2Cdesc"
     
+    driver = None
     try:
-        st.info("🔄 Initializing browser (this may take a moment)...")
+        st.info("🔄 Initializing browser for enhanced scraping...")
         driver = get_webdriver()
         
         if driver is None:
             raise Exception("Could not initialize Chrome driver")
         
-        driver.set_page_load_timeout(45)
-        
         print(f"Loading reviews page: {reviews_url}")
         driver.get(reviews_url)
-        time.sleep(8)
         
-        total_clicks = click_show_all_button(driver, max_clicks=2)
+        # Wait for initial page load
+        try:
+            wait = WebDriverWait(driver, 15)
+            wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
+        except:
+            pass
+        
+        time.sleep(5)
+        
+        # Try to click "Show All" buttons to load more reviews
+        total_clicks = click_show_all_button(driver, max_clicks=3)
         print(f"Total buttons clicked: {total_clicks}")
         
+        # Final scroll and wait
         driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-        time.sleep(3)
+        time.sleep(2)
         
+        # Get page source
         page_source = driver.page_source
-        driver.quit()
         
+        # Parse with BeautifulSoup
         soup = BeautifulSoup(page_source, "html.parser")
         reviews = []
         
@@ -277,7 +335,8 @@ def get_reviews(movie_name):
             "div.ipc-html-content-inner-div",
             "div.content .text",
             "div[data-testid='review-content']", 
-            ".review-container .content"
+            ".review-container .content",
+            "div.text.show-more__control"
         ]
         
         for selector in review_selectors:
@@ -293,26 +352,33 @@ def get_reviews(movie_name):
         poster_url = get_movie_poster(movie_id)
         
         if reviews:
+            st.success(f"✅ Successfully scraped {len(reviews)} reviews using enhanced method")
             return reviews, poster_url
         else:
             raise Exception("No reviews found with Selenium, trying fallback")
             
     except Exception as e:
-        print(f"Selenium method failed: {e}")
-        st.warning("🔄 Browser method failed, trying alternative approach...")
+        print(f"Selenium method error: {e}")
+        st.warning("🔄 Primary method encountered issues, trying alternative approach...")
         
         #try fallback method
         try:
             reviews, poster_url = get_reviews_fallback(movie_name)
             if reviews:
-                st.info("✅ Successfully retrieved reviews using alternative method")
+                st.info(f"✅ Successfully retrieved {len(reviews)} reviews using alternative method")
                 return reviews, poster_url
             else:
                 return [], None
         except Exception as fallback_error:
             print(f"Fallback method also failed: {fallback_error}")
             return [], None
-    
+    finally:
+        # Always close the driver if it was initialized
+        if driver:
+            try:
+                driver.quit()
+            except:
+                pass
 
 ################################ Streamlit ###################################
 if movie_name:
