@@ -1,2 +1,7 @@
+wget
+gnupg
+unzip
+curl
+xvfb
 chromium
 chromium-driver
