@@ -4,10 +4,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
-from selenium.webdriver.chrome.options import Options
-from webdriver_manager.chrome import ChromeDriverManager
-from selenium.webdriver.chrome.service import Service
-from webdriver_manager.core.os_manager import ChromeType
+from selenium.webdriver import FirefoxOptions
 import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
@@ -16,7 +13,6 @@ import requests
 import json
 import time
 import os
-import subprocess
 import sys
 
 BACKEND_URL = "https://hetbhalani-movie-sentiment-fastapi.hf.space/predict"
@@ -41,54 +37,43 @@ headers = {
 
 #idk
 @st.cache_resource
+def install_firefox_driver():
+    """Install Firefox driver for Streamlit Cloud"""
+    try:
+        os.system('sbase install geckodriver')
+        os.system('ln -s /home/appuser/venv/lib/python3.*/site-packages/seleniumbase/drivers/geckodriver /home/appuser/venv/bin/geckodriver')
+        return True
+    except Exception as e:
+        st.error(f"Failed to install geckodriver: {e}")
+        return False
+
+# Initialize Firefox driver installation
+_ = install_firefox_driver()
+
+@st.cache_resource
 def get_webdriver():
-    """Initialize Chrome webdriver for Streamlit Cloud"""
-    options = Options()
+    """Initialize and return a Firefox webdriver for Streamlit Cloud"""
     
-    # Basic required options
-    options.add_argument("--headless")
-    options.add_argument("--no-sandbox") 
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--remote-debugging-port=9222")
-    options.add_argument("--window-size=1920,1080")
+    # Firefox options for Streamlit Cloud
+    opts = FirefoxOptions()
+    opts.add_argument("--headless")
+    opts.add_argument("--no-sandbox")
+    opts.add_argument("--disable-dev-shm-usage")
+    opts.add_argument("--disable-gpu")
+    opts.add_argument("--window-size=1920,1080")
     
-    # Check if we're running on Streamlit Cloud
+    # Additional Firefox-specific options
+    opts.add_argument("--disable-extensions")
+    opts.add_argument("--disable-plugins")
+    opts.add_argument("--disable-images")
+    
     try:
-        # This is a hack to detect Streamlit Cloud environment
-        result = subprocess.run(['which', 'chromium'], capture_output=True, text=True)
-        if result.returncode == 0:
-            # We're likely on Streamlit Cloud with chromium installed
-            st.write("Detected Streamlit Cloud environment with Chromium")
-            
-            # Try to use chromium binary directly
-            options.binary_location = "/usr/bin/chromium"
-            
-            # Use system chromium-driver
-            service = Service("/usr/bin/chromedriver")
-            
-            try:
-                driver = webdriver.Chrome(service=service, options=options)
-                st.write("Successfully initialized with system chromedriver")
-                return driver
-            except Exception as e:
-                st.write(f"System chromedriver failed: {e}")
-                # Fall back to webdriver_manager
-                pass
-    except:
-        pass
-    
-    # Fallback to webdriver_manager
-    try:
-        st.write("Falling back to webdriver_manager")
-        driver = webdriver.Chrome(
-            service=Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install()),
-            options=options
-        )
-        st.write("webdriver_manager method successful")
+        st.info("Initializing Firefox browser...")
+        driver = webdriver.Firefox(options=opts)
+        st.success("Firefox browser initialized successfully!")
         return driver
     except Exception as e:
-        st.error(f"All webdriver initialization methods failed: {e}")
+        st.error(f"Failed to initialize Firefox driver: {str(e)}")
         return None
 
 #movie url for id

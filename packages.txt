@@ -1,7 +1,1 @@
-wget
-gnupg
-unzip
-curl
-xvfb
-chromium
-chromium-driver
+firefox-esr
