@@ -8,6 +8,7 @@ A **Streamlit + FastAPI** application for performing **sentiment analysis** on m
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.95%2B-00b8d4)&nbsp;&nbsp;&nbsp;
 ![Selenium](https://img.shields.io/badge/Selenium-4.0%2B-ff6f00)
 
+Demo link: [LinkedIn Post](https://www.linkedin.com/posts/het-bhalani-20403b2a8_machinelearning-deeplearning-nlp-ugcPost-7373398573612199936-EILj?utm_source=social_share_send&utm_medium=member_desktop_web&rcm=ACoAAEoLPmQB6j7m8NTTJNu1n7wQBGwWh0xzdtk)
 
 ## 🌟 Features
 
